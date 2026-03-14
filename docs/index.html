@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ECO Change Detection PoC Report</title>
+    <style>
+        :root {
+            --primary: #1565C0;
+            --secondary: #455A64;
+            --accent: #FF5722;
+            --safe: #4CAF50;
+            --caution: #FFC107;
+            --risk: #FF9800;
+            --high-risk: #E53935;
+            --bg: #FAFAFA;
+            --card: #FFFFFF;
+            --text: #212121;
+            --text-light: #757575;
+            --border: #E0E0E0;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.7;
+        }
+        .hero {
+            background: linear-gradient(135deg, #0D47A1 0%, #1565C0 50%, #1E88E5 100%);
+            color: white;
+            padding: 60px 20px;
+            text-align: center;
+        }
+        .hero h1 { font-size: 2.5em; margin-bottom: 10px; font-weight: 700; }
+        .hero .subtitle { font-size: 1.2em; opacity: 0.9; margin-bottom: 20px; }
+        .hero .badge {
+            display: inline-block;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.95em;
+            margin: 5px;
+        }
+        .badge-risk { background: rgba(229,57,53,0.9); }
+        .badge-info { background: rgba(255,255,255,0.2); }
+
+        .container { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
+
+        nav.toc {
+            background: white;
+            border-bottom: 1px solid var(--border);
+            padding: 15px 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        nav.toc .container {
+            display: flex;
+            gap: 20px;
+            overflow-x: auto;
+            white-space: nowrap;
+        }
+        nav.toc a {
+            color: var(--secondary);
+            text-decoration: none;
+            font-size: 0.9em;
+            font-weight: 500;
+            padding: 5px 12px;
+            border-radius: 5px;
+            transition: all 0.2s;
+        }
+        nav.toc a:hover { background: #E3F2FD; color: var(--primary); }
+
+        section { padding: 50px 0; }
+        section:nth-child(even) { background: white; }
+
+        h2 {
+            font-size: 1.8em;
+            color: var(--primary);
+            margin-bottom: 25px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid var(--primary);
+        }
+        h3 {
+            font-size: 1.3em;
+            color: var(--secondary);
+            margin: 25px 0 15px;
+        }
+        p { margin-bottom: 15px; color: #424242; }
+
+        .card {
+            background: var(--card);
+            border-radius: 12px;
+            padding: 30px;
+            margin: 20px 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border: 1px solid var(--border);
+        }
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .score-card {
+            text-align: center;
+            padding: 25px;
+        }
+        .score-card .score-value {
+            font-size: 2.5em;
+            font-weight: 700;
+            margin: 10px 0;
+        }
+        .score-card .score-label {
+            font-size: 0.9em;
+            color: var(--text-light);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .score-card .score-status {
+            display: inline-block;
+            padding: 4px 15px;
+            border-radius: 15px;
+            font-size: 0.85em;
+            font-weight: 600;
+            color: white;
+            margin-top: 8px;
+        }
+
+        .img-container {
+            margin: 25px 0;
+            text-align: center;
+        }
+        .img-container img {
+            max-width: 100%;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            border: 1px solid var(--border);
+        }
+        .img-caption {
+            font-size: 0.9em;
+            color: var(--text-light);
+            margin-top: 10px;
+            font-style: italic;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 0.95em;
+        }
+        th {
+            background: #E3F2FD;
+            color: var(--primary);
+            padding: 12px 15px;
+            text-align: left;
+            font-weight: 600;
+        }
+        td {
+            padding: 10px 15px;
+            border-bottom: 1px solid var(--border);
+        }
+        tr:hover { background: #F5F5F5; }
+
+        .tag {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: 600;
+            margin: 2px;
+        }
+        .tag-red { background: #FFEBEE; color: var(--high-risk); }
+        .tag-orange { background: #FFF3E0; color: var(--risk); }
+        .tag-green { background: #E8F5E9; color: var(--safe); }
+        .tag-blue { background: #E3F2FD; color: var(--primary); }
+        .tag-purple { background: #F3E5F5; color: #6A1B9A; }
+
+        .decision-banner {
+            padding: 20px 30px;
+            border-radius: 12px;
+            text-align: center;
+            margin: 20px 0;
+            font-size: 1.3em;
+            font-weight: 700;
+        }
+        .decision-high-risk {
+            background: linear-gradient(135deg, #FFEBEE, #FFCDD2);
+            color: var(--high-risk);
+            border: 2px solid var(--high-risk);
+        }
+
+        .timeline {
+            position: relative;
+            padding-left: 40px;
+        }
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 15px;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background: var(--primary);
+        }
+        .timeline-item {
+            position: relative;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -33px;
+            top: 25px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--primary);
+            border: 3px solid white;
+            box-shadow: 0 0 0 2px var(--primary);
+        }
+
+        .code-block {
+            background: #263238;
+            color: #ECEFF1;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'Cascadia Code', 'Fira Code', monospace;
+            font-size: 0.85em;
+            line-height: 1.6;
+            margin: 15px 0;
+        }
+
+        .insight-box {
+            background: linear-gradient(135deg, #E8EAF6, #C5CAE9);
+            border-left: 5px solid #3F51B5;
+            padding: 20px 25px;
+            border-radius: 0 8px 8px 0;
+            margin: 20px 0;
+        }
+        .insight-box h4 {
+            color: #283593;
+            margin-bottom: 8px;
+        }
+
+        .checklist { list-style: none; }
+        .checklist li {
+            padding: 8px 0;
+            padding-left: 30px;
+            position: relative;
+        }
+        .checklist li::before {
+            content: 'PASS';
+            position: absolute;
+            left: 0;
+            font-size: 0.7em;
+            font-weight: 700;
+            color: var(--safe);
+            background: #E8F5E9;
+            padding: 1px 5px;
+            border-radius: 3px;
+            top: 10px;
+        }
+
+        footer {
+            background: #263238;
+            color: #B0BEC5;
+            padding: 40px 20px;
+            text-align: center;
+        }
+        footer a { color: #4FC3F7; text-decoration: none; }
+
+        .ref-list { counter-reset: ref; list-style: none; }
+        .ref-list li {
+            counter-increment: ref;
+            padding: 8px 0 8px 40px;
+            position: relative;
+        }
+        .ref-list li::before {
+            content: '[' counter(ref) ']';
+            position: absolute;
+            left: 0;
+            color: var(--primary);
+            font-weight: 600;
+        }
+
+        @media (max-width: 768px) {
+            .hero h1 { font-size: 1.6em; }
+            .card-grid { grid-template-columns: 1fr; }
+            nav.toc .container { gap: 10px; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- Hero -->
+<header class="hero">
+    <div class="container">
+        <h1>ECO Change Detection PoC</h1>
+        <p class="subtitle">반도체 공정 변경점(ECO) 적용 전후 품질 차이 자동 정량화 파이프라인</p>
+        <div>
+            <span class="badge badge-risk">HIGH_RISK Detected</span>
+            <span class="badge badge-info">5,000 Features Analyzed</span>
+            <span class="badge badge-info">Ref: 1,000 / Comp: 80 Wafers</span>
+        </div>
+    </div>
+</header>
+
+<!-- Navigation -->
+<nav class="toc">
+    <div class="container">
+        <a href="#background">과제 배경</a>
+        <a href="#process">실험 과정</a>
+        <a href="#results">결과</a>
+        <a href="#discussion">토론</a>
+        <a href="#insights">인사이트</a>
+        <a href="#references">참고 문헌</a>
+    </div>
+</nav>
+
+<!-- 1. 과제 배경 -->
+<section id="background">
+    <div class="container">
+        <h2>1. 과제 배경</h2>
+
+        <h3>1.1 문제 정의</h3>
+        <p>
+            반도체 제조 공정에서 ECO(Engineering Change Order)는 수율 개선, 장비 교체, 재료 변경 등 다양한 이유로 적용됩니다.
+            변경점 적용 후 품질이 기존과 동일한지 검증하는 과정은 필수적이지만, 수천 개의 계측 Feature를 수동으로 비교하는 것은
+            비효율적이며 간헐적 불량 패턴을 놓칠 위험이 있습니다.
+        </p>
+
+        <div class="card-grid">
+            <div class="card">
+                <h3>핵심 질문 1</h3>
+                <p><strong>Ref(기준군)와 Compare(변경군) 사이에 얼마나 다른가?</strong></p>
+                <p>3종 Score(Shift, Tail, Outlier)로 정량화하여 SAFE/CAUTION/RISK/HIGH_RISK 단계로 판정합니다.</p>
+            </div>
+            <div class="card">
+                <h3>핵심 질문 2</h3>
+                <p><strong>어떤 Feature가 Score 변동에 가장 크게 기여하는가?</strong></p>
+                <p>Score별 Feature Importance를 추적하여 엔지니어에게 구체적인 원인 정보를 제공합니다.</p>
+            </div>
+        </div>
+
+        <h3>1.2 데이터 구조</h3>
+        <table>
+            <tr><th>항목</th><th>설명</th></tr>
+            <tr><td>단위</td><td>Wafer (반도체 웨이퍼 1장 = 1 row)</td></tr>
+            <tr><td>그룹</td><td><span class="tag tag-blue">Ref (기존 조건)</span> / <span class="tag tag-orange">Compare (변경 조건)</span></td></tr>
+            <tr><td>Feature 수</td><td>5,000개 (EDS/MSR/AWACS 계측값, 모두 numeric)</td></tr>
+            <tr><td>비대칭</td><td>Ref 1,000장 vs Compare 80장 (현실에서 ref >> compare)</td></tr>
+            <tr><td>Feature 특성</td><td>값이 클수록 불량률이 커지는 방향 (단방향)</td></tr>
+        </table>
+
+        <h3>1.3 파이프라인 구조</h3>
+        <div class="img-container">
+            <img src="images/08_pipeline_flow.png" alt="Pipeline Flow Diagram">
+            <p class="img-caption">그림 1. ECO Change Detection Pipeline 전체 흐름도</p>
+        </div>
+
+        <div class="insight-box">
+            <h4>설계 철학</h4>
+            <p>단일 Score로 합치지 않습니다. 불량 패턴이 2종류(Systematic Shift vs Intermittent Spike)이므로
+            각각에 맞는 Score를 산출하고, OR 조건으로 판정합니다. 하나라도 기준 초과 시 경고합니다.</p>
+        </div>
+    </div>
+</section>
+
+<!-- 2. 실험 과정 -->
+<section id="process">
+    <div class="container">
+        <h2>2. 실험 과정</h2>
+
+        <div class="timeline">
+            <!-- Step 1: 합성 데이터 생성 -->
+            <div class="timeline-item">
+                <h3>Step 1: 합성 데이터 생성</h3>
+                <p>실제 데이터 투입 전 파이프라인 동작을 검증하기 위해 3가지 불량 패턴을 시뮬레이션한 합성 데이터를 생성했습니다.</p>
+
+                <table>
+                    <tr><th>패턴</th><th>대상</th><th>설명</th><th>기대 검출</th></tr>
+                    <tr>
+                        <td><span class="tag tag-red">Pattern A</span></td>
+                        <td>Feature 100~120 (21개)</td>
+                        <td>전체 compare wafer에서 +1.5&sigma; systematic shift</td>
+                        <td>Shift Score</td>
+                    </tr>
+                    <tr>
+                        <td><span class="tag tag-orange">Pattern B</span></td>
+                        <td>Feature 500~510 (11개)</td>
+                        <td>10% wafer에서만 +6&sigma; 극단값 spike</td>
+                        <td>Tail Score</td>
+                    </tr>
+                    <tr>
+                        <td><span class="tag tag-purple">Pattern C</span></td>
+                        <td>Feature 200~499 (300개)<br>Wafer 70~74 (5장)</td>
+                        <td>특정 wafer에서 다수 feature 동시 이상 (+4&sigma;)</td>
+                        <td>Outlier Wafer Score</td>
+                    </tr>
+                </table>
+
+                <div class="img-container">
+                    <img src="images/01_synthetic_data_structure.png" alt="Synthetic Data Structure">
+                    <p class="img-caption">그림 2. 합성 데이터 구조 분석 — Ref 1,000장 vs Compare 80장의 비대칭 구조와 3가지 삽입 패턴</p>
+                </div>
+            </div>
+
+            <!-- Step 2: 전처리 -->
+            <div class="timeline-item">
+                <h3>Step 2: 전처리 (Preprocessing)</h3>
+                <p>전처리는 3단계로 구성됩니다:</p>
+                <ol style="padding-left: 20px; margin: 10px 0;">
+                    <li><strong>Feature 필터링</strong>: 결측률 30% 이상, 분산 &approx; 0인 변수 제거</li>
+                    <li><strong>Robust Scaling</strong>: Ref의 median/IQR로 정규화 (compare에도 동일 적용)</li>
+                    <li><strong>Winsorizing</strong>: Ref 기준 0.5th~99.5th percentile로 clipping (센서 glitch 제거)</li>
+                </ol>
+
+                <div class="insight-box">
+                    <h4>왜 Ref 기준으로 Scaling하는가?</h4>
+                    <p>Ref가 baseline이므로, Ref 기준으로 정규화해야 Compare의 이탈 정도가 의미를 가집니다.
+                    Compare의 통계량을 사용하면 이탈 자체가 스케일링에 반영되어 차이가 희석됩니다.</p>
+                </div>
+
+                <div class="img-container">
+                    <img src="images/02_preprocessing_steps.png" alt="Preprocessing Steps">
+                    <p class="img-caption">그림 3. 전처리 단계별 효과 — Scaling 전후 분포 변화 및 Winsorizing 효과</p>
+                </div>
+            </div>
+
+            <!-- Step 3: Score 산출 -->
+            <div class="timeline-item">
+                <h3>Step 3: Score 산출 (3종 병렬)</h3>
+
+                <div class="card-grid">
+                    <div class="card score-card">
+                        <div class="score-label">Shift Score</div>
+                        <div class="score-value" style="color: var(--caution);">0.807</div>
+                        <p style="font-size:0.85em;">Feature별 z-shift = (mean_comp - mean_ref) / std_ref<br>
+                        상위 1% feature의 평균으로 Score 산출</p>
+                        <span class="score-status" style="background: var(--caution);">CAUTION</span>
+                    </div>
+                    <div class="card score-card">
+                        <div class="score-label">Tail Score (max)</div>
+                        <div class="score-value" style="color: var(--high-risk);">31.25%</div>
+                        <p style="font-size:0.85em;">Ref 99th percentile 초과 비율<br>
+                        641개 feature에서 tail 증가 확인</p>
+                        <span class="score-status" style="background: var(--high-risk);">HIGH RISK</span>
+                    </div>
+                    <div class="card score-card">
+                        <div class="score-label">Outlier Wafer Rate</div>
+                        <div class="score-value" style="color: var(--risk);">6.25%</div>
+                        <p style="font-size:0.85em;">동시에 다수 feature 이상인 wafer 비율<br>
+                        5개 wafer (comp_w0070~0074) 검출</p>
+                        <span class="score-status" style="background: var(--risk);">RISK</span>
+                    </div>
+                </div>
+
+                <div class="img-container">
+                    <img src="images/03_score_calculation.png" alt="Score Calculation">
+                    <p class="img-caption">그림 4. 3종 Score 산출 과정 상세 — 각 Score의 분포와 개념도</p>
+                </div>
+            </div>
+
+            <!-- Step 4: Feature Importance -->
+            <div class="timeline-item">
+                <h3>Step 4: Feature Importance 추적</h3>
+                <p>3종 Score의 원인 Feature를 각각 추적합니다. 두 리스트가 다를 때가 더 가치 있는 정보입니다 &mdash;
+                "전반적 drift"와 "간헐 불량"은 다른 엔지니어링 액션으로 이어지기 때문입니다.</p>
+
+                <div class="img-container">
+                    <img src="images/04_feature_importance.png" alt="Feature Importance">
+                    <p class="img-caption">그림 5. Feature Importance 분석 — Shift vs Tail 원인 비교 및 Multi-Score Heatmap</p>
+                </div>
+            </div>
+
+            <!-- Step 5: 판정 -->
+            <div class="timeline-item">
+                <h3>Step 5: 판정 + 리포트 생성</h3>
+                <p>3종 Score를 OR 조건으로 판정합니다. 하나라도 기준 초과 시 경고를 상향합니다.</p>
+
+                <table>
+                    <tr><th>판정</th><th>조건</th><th>권장 액션</th></tr>
+                    <tr>
+                        <td><span class="tag tag-green">SAFE</span></td>
+                        <td>모든 Score 정상 범위</td>
+                        <td>변경점 적용 승인 가능</td>
+                    </tr>
+                    <tr>
+                        <td><span class="tag tag-blue">CAUTION</span></td>
+                        <td>소수 Score 경계값</td>
+                        <td>추가 wafer 확보 후 재평가</td>
+                    </tr>
+                    <tr>
+                        <td><span class="tag tag-orange">RISK</span></td>
+                        <td>1+ Score 경고 수준</td>
+                        <td>변경점 적용 보류, 원인 분석</td>
+                    </tr>
+                    <tr>
+                        <td><span class="tag tag-red">HIGH_RISK</span></td>
+                        <td>1+ Score 위험 수준</td>
+                        <td>변경점 적용 중단, 긴급 검토</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- 3. 결과 -->
+<section id="results">
+    <div class="container">
+        <h2>3. 결과</h2>
+
+        <div class="decision-banner decision-high-risk">
+            DECISION: HIGH_RISK
+        </div>
+
+        <h3>3.1 Score 요약</h3>
+        <table>
+            <tr><th>Score</th><th>값</th><th>판정 기준</th><th>판정</th></tr>
+            <tr>
+                <td>Shift Score</td>
+                <td><strong>0.807</strong></td>
+                <td>&gt; 0.5: CAUTION, &gt; 1.0: RISK, &gt; 2.0: HIGH_RISK</td>
+                <td><span class="tag tag-blue">CAUTION</span></td>
+            </tr>
+            <tr>
+                <td>Tail Score (max)</td>
+                <td><strong>31.25%</strong></td>
+                <td>&gt; 3%: CAUTION, &gt; 5%: RISK, &gt; 10%: HIGH_RISK</td>
+                <td><span class="tag tag-red">HIGH_RISK</span></td>
+            </tr>
+            <tr>
+                <td>Tail Feature Count</td>
+                <td><strong>641개</strong></td>
+                <td>기대치의 3배 이상 tail rate를 가진 feature 수</td>
+                <td><span class="tag tag-red">다수 feature 영향</span></td>
+            </tr>
+            <tr>
+                <td>Outlier Wafer Rate</td>
+                <td><strong>6.25%</strong> (5/80)</td>
+                <td>&gt; 3%: CAUTION, &gt; 5%: RISK, &gt; 10%: HIGH_RISK</td>
+                <td><span class="tag tag-orange">RISK</span></td>
+            </tr>
+        </table>
+
+        <h3>3.2 판정 사유</h3>
+        <ul style="padding-left: 20px;">
+            <li>Shift Score 0.81: 상위 feature에서 소폭 이동 관찰</li>
+            <li>Tail Score 31.2%: 심각한 tail 증가 (641개 feature)</li>
+            <li>Outlier Rate 6.2%: 일부 wafer(5장)에서 다변량 이상</li>
+        </ul>
+
+        <div class="img-container">
+            <img src="images/05_final_report.png" alt="Final Report Dashboard">
+            <p class="img-caption">그림 6. 최종 리포트 대시보드 — Score 요약, 원인 Feature Top-10, Outlier Wafer 분포</p>
+        </div>
+
+        <h3>3.3 Shift 원인 Feature Top-10</h3>
+        <table>
+            <tr><th>순위</th><th>Feature</th><th>Z-shift</th><th>방향</th></tr>
+            <tr><td>1</td><td>EDS_0118</td><td>+1.624</td><td><span class="tag tag-red">악화 &#9650;</span></td></tr>
+            <tr><td>2</td><td>EDS_0115</td><td>+1.555</td><td><span class="tag tag-red">악화 &#9650;</span></td></tr>
+            <tr><td>3</td><td>EDS_0101</td><td>+1.535</td><td><span class="tag tag-red">악화 &#9650;</span></td></tr>
+            <tr><td>4</td><td>EDS_0111</td><td>+1.487</td><td><span class="tag tag-red">악화 &#9650;</span></td></tr>
+            <tr><td>5</td><td>EDS_0110</td><td>+1.464</td><td><span class="tag tag-red">악화 &#9650;</span></td></tr>
+            <tr><td>6</td><td>EDS_0116</td><td>+1.449</td><td><span class="tag tag-red">악화 &#9650;</span></td></tr>
+            <tr><td>7</td><td>EDS_0106</td><td>+1.429</td><td><span class="tag tag-red">악화 &#9650;</span></td></tr>
+            <tr><td>8</td><td>EDS_0102</td><td>+1.408</td><td><span class="tag tag-red">악화 &#9650;</span></td></tr>
+            <tr><td>9</td><td>EDS_0117</td><td>+1.406</td><td><span class="tag tag-red">악화 &#9650;</span></td></tr>
+            <tr><td>10</td><td>EDS_0109</td><td>+1.404</td><td><span class="tag tag-red">악화 &#9650;</span></td></tr>
+        </table>
+
+        <h3>3.4 Tail 원인 Feature Top-10</h3>
+        <table>
+            <tr><th>순위</th><th>Feature</th><th>Tail Rate</th><th>기대치 대비</th></tr>
+            <tr><td>1</td><td>EDS_0118</td><td>31.2%</td><td>31.2배</td></tr>
+            <tr><td>2</td><td>EDS_0113</td><td>30.0%</td><td>30.0배</td></tr>
+            <tr><td>3</td><td>EDS_0110</td><td>27.5%</td><td>27.5배</td></tr>
+            <tr><td>4</td><td>EDS_0111</td><td>26.2%</td><td>26.2배</td></tr>
+            <tr><td>5</td><td>EDS_0106</td><td>25.0%</td><td>25.0배</td></tr>
+            <tr><td>6</td><td>EDS_0115</td><td>25.0%</td><td>25.0배</td></tr>
+            <tr><td>7</td><td>EDS_0102</td><td>23.8%</td><td>23.8배</td></tr>
+            <tr><td>8</td><td>EDS_0112</td><td>23.8%</td><td>23.8배</td></tr>
+            <tr><td>9</td><td>EDS_0101</td><td>22.5%</td><td>22.5배</td></tr>
+            <tr><td>10</td><td>EDS_0116</td><td>21.2%</td><td>21.2배</td></tr>
+        </table>
+
+        <h3>3.5 Outlier Wafer 목록</h3>
+        <p>검출된 Outlier Wafer: <span class="tag tag-red">comp_w0070</span> <span class="tag tag-red">comp_w0071</span>
+        <span class="tag tag-red">comp_w0072</span> <span class="tag tag-red">comp_w0073</span>
+        <span class="tag tag-red">comp_w0074</span></p>
+
+        <h3>3.6 추가 분석: 다양한 시각화 기법</h3>
+        <div class="img-container">
+            <img src="images/07_additional_insights.png" alt="Additional Insights">
+            <p class="img-caption">그림 7. Violin Plot, 2D Scatter, Correlation Heatmap, CDF 비교를 통한 다각적 분석</p>
+        </div>
+
+        <h3>3.7 Sensitivity Analysis (민감도 검증)</h3>
+        <div class="img-container">
+            <img src="images/06_sensitivity_analysis.png" alt="Sensitivity Analysis">
+            <p class="img-caption">그림 8. False Alarm Test, Shift 크기 vs Score, Sample Size vs 변동성, 검증 체크리스트</p>
+        </div>
+
+        <h3>3.8 검증 체크리스트</h3>
+        <ul class="checklist">
+            <li>Pattern A (Shift): Shift Score 원인 Feature에 EDS_0100~0120이 모두 포함됨</li>
+            <li>Pattern B (Spike): Tail Score 원인 Feature에 EDS_0500~0510 계열이 포함됨</li>
+            <li>Pattern C (Outlier): Outlier Wafer에 comp_w0070~0074가 정확히 포함됨</li>
+            <li>False Alarm Test: Ref vs Ref 비교 시 모든 Score가 낮은 값을 보임</li>
+            <li>Shift 크기를 점진적으로 늘렸을 때 Score가 단조 증가함</li>
+        </ul>
+    </div>
+</section>
+
+<!-- 4. 토론 -->
+<section id="discussion">
+    <div class="container">
+        <h2>4. 토론</h2>
+
+        <h3>4.1 3종 Score 분리의 타당성</h3>
+        <p>
+            이번 PoC에서 Shift Score와 Tail Score의 원인 Feature가 부분적으로 겹치는 것을 확인했습니다(그림 5 좌하단).
+            Pattern A(Systematic Shift)를 삽입한 Feature(EDS_0100~0120)는 전체 분포가 이동했기 때문에 Shift Score와
+            Tail Score 모두에서 검출됩니다. 이는 "강한 Shift가 있으면 자연스럽게 Tail도 증가한다"는 직관과 일치합니다.
+        </p>
+        <p>
+            반면 Pattern B(Intermittent Spike)는 중심치는 거의 변하지 않고 소수 wafer에서만 극단값이 발생하므로,
+            이론적으로 Tail Score에서만 검출되어야 합니다. 합성 데이터에서 이 분리가 확인되었습니다.
+        </p>
+
+        <div class="insight-box">
+            <h4>Score 분리의 실질적 가치</h4>
+            <p>Shift만 높은 경우: 공정 조건이 전반적으로 바뀐 것 &rarr; Recipe/설비 파라미터 점검<br>
+            Tail만 높은 경우: 간헐적 이상 &rarr; 특정 lot/설비/시간대 추적 필요<br>
+            둘 다 높은 경우: 구조적 변화 &rarr; 변경점 원복 고려</p>
+        </div>
+
+        <h3>4.2 Top-K 방식의 장단점</h3>
+        <p>
+            Shift Score에서 전체 RMS 대신 Top-K(상위 1%) 평균을 사용한 이유는 feature 수가 5,000개일 때
+            소수 feature의 shift가 전체 RMS에 희석되기 때문입니다. 실험 결과 Top-K 방식이 삽입한 21개 feature의
+            shift를 정확히 포착했습니다.
+        </p>
+        <p>
+            다만 <strong>top_k_ratio의 선택</strong>이 결과에 영향을 미칩니다. 1% = 50개 feature를 보는 것인데,
+            실제 shift feature가 21개이므로 나머지 29개는 noise를 포함하여 Score가 약간 희석됩니다.
+            향후에는 adaptive top_k 선택이나 threshold 기반 feature 선택을 고려할 수 있습니다.
+        </p>
+
+        <h3>4.3 비대칭 데이터의 영향</h3>
+        <p>
+            Ref 1,000장 vs Compare 80장의 비대칭 구조에서 Compare의 통계량 추정은 불안정할 수 있습니다.
+            민감도 분석(그림 8)에서 확인한 바와 같이, Compare wafer 수가 30 미만이면 Score 변동성이 크게 증가합니다.
+            30장 이상에서는 비교적 안정적인 Score를 보이며, 80장에서는 충분한 신뢰도를 제공합니다.
+        </p>
+
+        <h3>4.4 Winsorizing의 효과와 한계</h3>
+        <p>
+            0.5th~99.5th percentile Winsorizing은 센서 glitch나 명백한 measurement 오류를 제거하는 데 효과적입니다.
+            그러나 Pattern B와 같은 실제 간헐적 불량 신호까지 제거할 위험이 있습니다.
+            현재 설정(0.5%~99.5%)은 매우 보수적이어서 실제 불량 신호를 보존하면서도 극단적 오류만 제거합니다.
+        </p>
+
+        <h3>4.5 현실 적용 시 고려사항</h3>
+        <table>
+            <tr><th>고려사항</th><th>위험</th><th>대응</th></tr>
+            <tr>
+                <td>Ref 내부 시간 drift</td>
+                <td>Baseline 오염으로 false alarm 또는 miss</td>
+                <td>시간 가중치 부여, 최근 n개월 ref만 사용</td>
+            </tr>
+            <tr>
+                <td>설비 편향 (equipment bias)</td>
+                <td>변경점 아닌 설비 차이가 검출됨</td>
+                <td>Matched comparison: 동일 설비 ref-comp 매칭</td>
+            </tr>
+            <tr>
+                <td>Feature 간 상관성</td>
+                <td>독립 가정 위반으로 false positive 증가</td>
+                <td>PCA 차원 축소 후 Score 산출</td>
+            </tr>
+            <tr>
+                <td>결측 패턴 차이</td>
+                <td>Ref/Comp 결측 패턴이 다르면 편향</td>
+                <td>결측 패턴 사전 비교, 공통 유효 feature만 사용</td>
+            </tr>
+        </table>
+    </div>
+</section>
+
+<!-- 5. 인사이트 -->
+<section id="insights">
+    <div class="container">
+        <h2>5. 인사이트</h2>
+
+        <div class="card-grid">
+            <div class="card">
+                <h3 style="color: var(--primary);">3종 Score 분리의 효과</h3>
+                <p>단일 종합 Score로는 놓칠 수 있는 간헐적 불량 패턴(Tail)과 특정 wafer 집중 이상(Outlier)을
+                별도로 포착할 수 있었습니다. 현실에서 "수율은 괜찮은데 간헐적으로 불량 lot이 나오는" 상황은
+                Tail Score로만 검출 가능합니다.</p>
+            </div>
+            <div class="card">
+                <h3 style="color: var(--accent);">Feature Importance의 실용적 가치</h3>
+                <p>Score가 높다는 것만으로는 엔지니어에게 actionable한 정보가 되지 못합니다.
+                "어떤 Feature가 원인인가"를 함께 제공해야 구체적인 공정 조사가 가능합니다.
+                Shift 원인과 Tail 원인이 다를 때 특히 가치가 높습니다.</p>
+            </div>
+            <div class="card">
+                <h3 style="color: #6A1B9A;">비대칭 데이터에서의 Robust Scaling</h3>
+                <p>Ref 기준 median/IQR Scaling은 outlier에 강건하면서도 Compare의 이탈 정도를
+                직관적으로 해석할 수 있게 합니다. Z-score(mean/std) 대비 극단값에 덜 민감하여
+                소규모 Compare 데이터에서도 안정적입니다.</p>
+            </div>
+            <div class="card">
+                <h3 style="color: var(--safe);">Sample Size의 중요성</h3>
+                <p>민감도 분석에서 Compare 30장 미만 시 Score 변동성이 급격히 증가함을 확인했습니다.
+                이는 파이프라인에 내장된 INSUFFICIENT_DATA 판정의 근거가 됩니다.
+                현장에서 조기 평가 압력이 있더라도, 최소 30장의 Compare를 확보해야 신뢰할 수 있는 판정이 가능합니다.</p>
+            </div>
+        </div>
+
+        <h3>향후 확장 방향</h3>
+        <table>
+            <tr><th>순서</th><th>확장 내용</th><th>목적</th></tr>
+            <tr><td>1</td><td>PCA 보조: component 공간에서 Score 안정화</td><td>Feature 상관성에 의한 noise 감소</td></tr>
+            <tr><td>2</td><td>Matched Comparison: metadata 기반 ref 매칭</td><td>설비/시간 등 confounding 통제</td></tr>
+            <tr><td>3</td><td>변경점 유형별 Rule (불량개선형 / 효율향상형)</td><td>판정 정밀화</td></tr>
+            <tr><td>4</td><td>Stage 0~4 체계 연계</td><td>현업 프로세스 통합</td></tr>
+            <tr><td>5</td><td>사례 DB + Supervised Classifier</td><td>자동화 고도화</td></tr>
+        </table>
+
+        <div class="insight-box">
+            <h4>핵심 결론</h4>
+            <p>이 PoC는 3종 Score 기반 ECO Change Detection 파이프라인이 합성 데이터에서
+            <strong>3가지 유형의 불량 패턴을 정확히 검출</strong>하고, <strong>원인 Feature를 추적</strong>하며,
+            <strong>False Alarm을 억제</strong>할 수 있음을 검증했습니다.
+            실제 데이터 적용 시에는 설비 편향과 시간 drift 통제가 핵심 과제가 될 것입니다.</p>
+        </div>
+    </div>
+</section>
+
+<!-- 6. 참고 문헌 -->
+<section id="references">
+    <div class="container">
+        <h2>6. 참고 문헌</h2>
+
+        <ol class="ref-list">
+            <li>Montgomery, D.C. (2019). <em>Introduction to Statistical Quality Control</em>, 8th Edition. Wiley.
+                &mdash; SPC 기반 공정 모니터링 및 변경점 검출의 이론적 기초.</li>
+            <li>Hawkins, D.M. & Olwell, D.H. (1998). <em>Cumulative Sum Charts and Charting for Quality Improvement</em>.
+                Springer. &mdash; CUSUM 기반 공정 변화 탐지 방법론.</li>
+            <li>Rousseeuw, P.J. & Croux, C. (1993). "Alternatives to the Median Absolute Deviation."
+                <em>Journal of the American Statistical Association</em>, 88(424), 1273-1283.
+                &mdash; Robust scaling (median/IQR) 방법론의 통계적 근거.</li>
+            <li>Hubert, M. & Vandervieren, E. (2008). "An Adjusted Boxplot for Skewed Distributions."
+                <em>Computational Statistics & Data Analysis</em>, 52(12), 5186-5201.
+                &mdash; 비대칭 분포에서의 outlier 탐지 방법.</li>
+            <li>Hodge, V.J. & Austin, J. (2004). "A Survey of Outlier Detection Methodologies."
+                <em>Artificial Intelligence Review</em>, 22(2), 85-126.
+                &mdash; 다변량 outlier 탐지 방법론 비교.</li>
+            <li>Apley, D.W. & Shi, J. (2001). "A Factor-Analysis Method for Diagnosing Variability in
+                Multivariate Manufacturing Processes." <em>Technometrics</em>, 43(1), 84-95.
+                &mdash; 반도체 공정에서 다변량 변동 원인 분석.</li>
+            <li>Chen, S. & Nembhard, H.B. (2011). "High-Dimensional Process Monitoring and Diagnosis via
+                Sparse Principal Components." <em>IIE Transactions</em>, 43(10), 742-754.
+                &mdash; 고차원 공정 데이터에서의 변동 탐지.</li>
+            <li>Qiu, P. (2013). <em>Introduction to Statistical Process Control</em>. Chapman & Hall/CRC.
+                &mdash; 통계적 공정 관리의 현대적 접근.</li>
+        </ol>
+    </div>
+</section>
+
+<!-- Footer -->
+<footer>
+    <div class="container">
+        <p><strong>ECO Change Detection PoC</strong> &mdash; Semiconductor Process Change Verification Pipeline</p>
+        <p>Built with Python (pandas, numpy, matplotlib, seaborn, scipy)</p>
+        <p><a href="https://github.com/mangotengcherry/change_point_detection">GitHub Repository</a></p>
+        <p style="margin-top: 15px; font-size: 0.85em;">Generated: 2026-03-15</p>
+    </div>
+</footer>
+
+</body>
+</html>
