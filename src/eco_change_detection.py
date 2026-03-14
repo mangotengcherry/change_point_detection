@@ -294,36 +294,90 @@ def run_eco_change_detection(df_ref, df_comp,
 
 
 # ============================================================
-# Synthetic Data Generator
+# Synthetic Data Generator (v2: 5가지 패턴, 난이도별)
 # ============================================================
 
 def generate_synthetic_data(n_ref=1000, n_comp=80, n_features=5000, seed=42):
-    """3가지 불량 패턴을 시뮬레이션한 합성 데이터 생성"""
+    """5가지 불량 패턴을 시뮬레이션한 합성 데이터 생성 (난이도별 분류)
+
+    Returns:
+        df_ref, df_comp, ground_truth
+        ground_truth: dict with pattern info and feature indices
+    """
     np.random.seed(seed)
     feature_names = [f"EDS_{i:04d}" for i in range(n_features)]
 
     ref_data = np.random.randn(n_ref, n_features) * 0.5 + 3.0
     comp_data = np.random.randn(n_comp, n_features) * 0.5 + 3.0
 
-    # Pattern A: Systematic shift (Feature 100~120)
+    # Pattern A: Systematic shift (Feature 100~120) - Easy
     shift_features = list(range(100, 121))
     comp_data[:, shift_features] += 0.75  # +1.5σ shift (std=0.5)
 
-    # Pattern B: Intermittent spike (Feature 500~510)
+    # Pattern B: Intermittent spike (Feature 500~510) - Easy
     spike_features = list(range(500, 511))
     spike_wafers = np.random.choice(n_comp, size=int(n_comp * 0.10), replace=False)
     comp_data[np.ix_(spike_wafers, spike_features)] += 3.0
 
-    # Pattern C: Multi-feature outlier wafers (Wafer 70~74)
+    # Pattern C: Multi-feature outlier wafers (Wafer 70~74) - Easy
     outlier_wafers = list(range(70, min(75, n_comp)))
     outlier_features = list(range(200, 500))  # 300개 feature (6%)에 걸쳐 이상
     for w in outlier_wafers:
         if w < n_comp:
             comp_data[w, outlier_features] += 2.0
 
+    # Pattern D: Gradual Trend (Feature 600~610) - Medium
+    trend_features = list(range(600, 611))
+    for i, w in enumerate(range(n_comp)):
+        drift = (i / n_comp) * 1.0  # 0 -> 1.0 점진적 증가
+        comp_data[w, trend_features] += drift
+
+    # Pattern E: Subtle Shift (Feature 700~720) - Hard
+    subtle_features = list(range(700, 721))
+    comp_data[:, subtle_features] += 0.25  # +0.5σ shift (미세)
+
     df_ref = pd.DataFrame(ref_data, columns=feature_names,
                           index=[f"ref_w{i:04d}" for i in range(n_ref)])
     df_comp = pd.DataFrame(comp_data, columns=feature_names,
                            index=[f"comp_w{i:04d}" for i in range(n_comp)])
 
-    return df_ref, df_comp
+    # Ground truth 정보
+    all_anomaly_features = set(shift_features + spike_features + outlier_features
+                               + trend_features + subtle_features)
+    ground_truth = {
+        "pattern_A": {
+            "type": "Systematic Shift",
+            "difficulty": "Easy",
+            "features": shift_features,
+            "description": "F100~120, +1.5σ, 전체 wafer"
+        },
+        "pattern_B": {
+            "type": "Intermittent Spike",
+            "difficulty": "Easy",
+            "features": spike_features,
+            "wafers": spike_wafers.tolist(),
+            "description": "F500~510, 10% wafer, +6σ spike"
+        },
+        "pattern_C": {
+            "type": "Multi-Feature Outlier",
+            "difficulty": "Easy",
+            "features": outlier_features,
+            "wafers": outlier_wafers,
+            "description": "F200~499, W70~74, +4σ 동시 이상"
+        },
+        "pattern_D": {
+            "type": "Gradual Trend",
+            "difficulty": "Medium",
+            "features": trend_features,
+            "description": "F600~610, 점진적 0→+2σ drift"
+        },
+        "pattern_E": {
+            "type": "Subtle Shift",
+            "difficulty": "Hard",
+            "features": subtle_features,
+            "description": "F700~720, +0.5σ 미세 이동"
+        },
+        "all_anomaly_features": sorted(all_anomaly_features)
+    }
+
+    return df_ref, df_comp, ground_truth

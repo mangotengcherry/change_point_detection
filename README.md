@@ -38,37 +38,62 @@
   ▼ [출력] 변경점 검증 리포트
 ```
 
+## Streamlit 대시보드
+
+실제 데이터를 업로드하여 3종 Score 분석을 대화형으로 수행할 수 있습니다.
+
+```bash
+streamlit run src/app.py
+```
+
+**주요 기능:**
+- CSV/Excel 파일 업로드 (Ref / Compare 각각)
+- 분석 파라미터 실시간 조정 (Top-K Ratio, Tail Percentile, Outlier Threshold)
+- 3종 Score 상세 탭 (Shift / Tail / Outlier)
+- Feature 상세 비교 (분포 히스토그램 + Box Plot)
+- Outlier Wafer 시각화
+- 결과 다운로드 (CSV, TXT)
+
 ## PoC 실험 결과 요약
 
-합성 데이터(Ref 1,000장, Compare 80장, Feature 5,000개)에 3가지 불량 패턴을 삽입하여 파이프라인을 검증했습니다.
+합성 데이터(Ref 1,000장, Compare 80장, Feature 5,000개)에 **5가지 불량 패턴**(난이도별)을 삽입하여 파이프라인을 검증했습니다.
+
+### 삽입 패턴
+
+| 패턴 | 유형 | 대상 | 난이도 |
+|------|------|------|--------|
+| A | Systematic Shift | F100~120, +1.5σ | Easy |
+| B | Intermittent Spike | F500~510, 10% wafer | Easy |
+| C | Multi-Feature Outlier | F200~499, W70~74 | Easy |
+| D | Gradual Trend | F600~610, 점진적 drift | Medium |
+| E | Subtle Shift | F700~720, +0.5σ | Hard |
 
 ### Score 결과
 
 | Score | 값 | 판정 |
 |-------|-----|------|
-| Shift Score | **0.807** | CAUTION |
+| Shift Score | **0.994** | CAUTION |
 | Tail Score (max) | **31.25%** | HIGH_RISK |
-| Tail Feature Count | **641개** | - |
+| Tail Feature Count | **661개** | - |
 | Outlier Wafer Rate | **6.25%** (5/80) | RISK |
 | **최종 판정** | | **HIGH_RISK** |
 
-### 삽입 패턴 검출 결과
+### 패턴 검출 검증
 
-| 패턴 | 대상 | 검출 Score | 검증 |
-|-------|------|------------|------|
-| Pattern A: Systematic Shift | EDS_0100~0120 | Shift Score Top-10에 포함 | PASS |
-| Pattern B: Intermittent Spike | EDS_0500~0510 | Tail Score에서 검출 | PASS |
-| Pattern C: Multi-Feature Outlier | Wafer 70~74 | Outlier Wafer에 정확히 포함 | PASS |
-
-### 민감도 검증
-
-- **False Alarm Test**: Ref를 반으로 나누어 비교 시 모든 Score ≈ 0 확인
-- **단조 증가 검증**: Shift 크기를 점진적으로 늘렸을 때 Score 단조 증가 확인
-- **Sample Size 검증**: Compare 30장 미만 시 Score 변동성 급증 확인
+| 패턴 | 검출 Score | 검증 |
+|-------|------------|------|
+| Pattern A: Systematic Shift | Shift Score Top-10에 EDS_0100~0120 포함 | PASS |
+| Pattern B: Intermittent Spike | Tail Score에서 검출 | PASS |
+| Pattern C: Multi-Feature Outlier | Outlier Wafer에 comp_w0070~0074 포함 | PASS |
+| False Alarm Test | Ref vs Ref 시 Score ≈ 0 | PASS |
+| 단조 증가 검증 | Shift 크기 ↑ → Score ↑ | PASS |
 
 ## 시각화 결과
 
-### 합성 데이터 구조
+### 파이프라인 흐름도
+![Pipeline Flow](docs/images/00_pipeline_flow.png)
+
+### 합성 데이터 구조 (5가지 패턴)
 ![Synthetic Data](docs/images/01_synthetic_data_structure.png)
 
 ### 전처리 과정
@@ -89,8 +114,11 @@
 ### 추가 인사이트 (Violin, Scatter, Correlation, CDF)
 ![Additional Insights](docs/images/07_additional_insights.png)
 
-### 파이프라인 흐름도
-![Pipeline Flow](docs/images/08_pipeline_flow.png)
+### Ground Truth 검증
+![Ground Truth](docs/images/08_ground_truth_validation.png)
+
+### Wafer 단위 심층 분석
+![Wafer Analysis](docs/images/09_wafer_analysis.png)
 
 ## 프로젝트 구조
 
@@ -100,19 +128,12 @@ change_point_detection/
 ├── requirements.txt
 ├── src/
 │   ├── eco_change_detection.py    # 핵심 파이프라인 코드
-│   └── run_experiment.py          # 실험 실행 + 시각화 생성
+│   ├── run_experiment.py          # 실험 실행 + 시각화 생성
+│   └── app.py                     # Streamlit 대시보드
 ├── results/                       # 생성된 시각화 이미지
-│   ├── 01_synthetic_data_structure.png
-│   ├── 02_preprocessing_steps.png
-│   ├── 03_score_calculation.png
-│   ├── 04_feature_importance.png
-│   ├── 05_final_report.png
-│   ├── 06_sensitivity_analysis.png
-│   ├── 07_additional_insights.png
-│   └── 08_pipeline_flow.png
 └── docs/                          # GitHub Pages
     ├── index.html
-    └── images/                    # 페이지용 이미지 복사본
+    └── images/
 ```
 
 ## 실행 방법
@@ -123,6 +144,9 @@ pip install -r requirements.txt
 
 # 실험 실행 (합성 데이터 생성 + 파이프라인 + 시각화)
 python src/run_experiment.py
+
+# Streamlit 대시보드 실행
+streamlit run src/app.py
 ```
 
 ## 의존성
@@ -134,6 +158,9 @@ matplotlib >= 3.6
 seaborn >= 0.12
 scipy >= 1.9
 scikit-learn >= 1.2
+plotly >= 5.0
+streamlit >= 1.20
+openpyxl >= 3.0
 ```
 
 ## 향후 확장
@@ -141,8 +168,8 @@ scikit-learn >= 1.2
 | 순서 | 확장 내용 | 목적 |
 |------|-----------|------|
 | 1 | PCA 보조 Score 안정화 | Feature 상관성에 의한 noise 감소 |
-| 2 | Matched Comparison | 설비/시간 등 confounding 통제 |
-| 3 | 변경점 유형별 Rule | 판정 정밀화 |
+| 2 | 통계 검정 교차 검증 | Score 결과의 통계적 유의성 확인 |
+| 3 | Matched Comparison | 설비/시간 등 confounding 통제 |
 | 4 | Stage 0~4 체계 연계 | 현업 프로세스 통합 |
 | 5 | 사례 DB + Supervised Classifier | 자동화 고도화 |
 
@@ -154,5 +181,3 @@ scikit-learn >= 1.2
 4. Hubert, M. & Vandervieren, E. (2008). "An Adjusted Boxplot for Skewed Distributions." *CSDA*, 52(12).
 5. Hodge, V.J. & Austin, J. (2004). "A Survey of Outlier Detection Methodologies." *AI Review*, 22(2).
 6. Apley, D.W. & Shi, J. (2001). "A Factor-Analysis Method for Diagnosing Variability in Multivariate Manufacturing Processes." *Technometrics*, 43(1).
-7. Chen, S. & Nembhard, H.B. (2011). "High-Dimensional Process Monitoring and Diagnosis via Sparse Principal Components." *IIE Transactions*, 43(10).
-8. Qiu, P. (2013). *Introduction to Statistical Process Control*. Chapman & Hall/CRC.
