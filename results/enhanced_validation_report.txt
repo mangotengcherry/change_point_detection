@@ -1,0 +1,73 @@
+======================================================================
+Enhanced ECO Change Detection — 통합 검증 리포트
+======================================================================
+
+[1] 기본 3-Score 파이프라인 (합성 데이터)
+  판정: HIGH_RISK (Level 3)
+  Shift Score: 0.994
+  Tail Score Max: 31.2%
+  Tail Feature Count: 661
+  Outlier Wafer Rate: 6.2%
+    - Shift Score 0.99: 소폭 이동 관찰
+    - Tail Score 31.2%: 심각한 tail 증가 (feature 661개)
+    - Outlier Rate 6.2%: 일부 wafer 이상
+
+[2] 효율 향상형 검증
+  [정상 케이스]
+    Stage: 2 — EQUIVALENT_PRELIMINARY
+    설명: 품질 동등성 예비 확인, 확대 검증 권고
+    Confidence: MEDIUM (0.86)
+    Bootstrap: mean=0.4616 ± 0.0216, CV=4.68%
+    Global Deviation: mean=1.7434, outlier=0.0%
+      - Shift Score 0.33가 허용 범위입니다 (< 0.5).
+      - Tail Score 7.5%가 허용 범위입니다 (< 8%).
+      - Outlier Rate 0.0%가 허용 범위입니다 (< 3%).
+      - 비교 웨이퍼 80매 — 100매 이상 확보 시 확정 가능합니다.
+  [위험 케이스]
+    Stage: -1 — RISK
+    설명: 품질 동등성 미확인 — 위험 수준의 차이가 감지되어 추가 조사 필요
+    Confidence: MEDIUM (0.86)
+    Bootstrap: mean=2.4203 ± 0.0062, CV=0.26%
+    Global Deviation: mean=1.8865, outlier=0.0%
+      - Shift Score 2.41가 위험 임계치(1.0)를 초과합니다.
+      - Tail Score 86.2%가 위험 임계치(10%)를 초과합니다.
+
+[3] 불량 개선형 검증
+  [부작용 없음]
+    Stage: 3 — IMPROVEMENT_CONFIRMED
+    설명: 불량 개선 확인, 부작용 허용 범위 내
+    Target 개선: True, Side Effect: 0개
+      - 대상 feature 21/21개 개선 확인.
+      - 비대상 feature에서 부작용이 감지되지 않았습니다.
+      - 비교 웨이퍼 80매 — 100매 이상 확보 시 Stage 4 가능.
+  [부작용 있음]
+    Stage: 2 — PARTIAL_IMPROVEMENT
+    설명: 대상 불량 개선 확인, 그러나 부작용 감지 — 추가 분석 필요
+    Target 개선: True, Side Effect: 20개
+      - 대상 feature 21/21개 개선 확인.
+      - 비대상 feature 20개에서 부작용이 감지되었습니다.
+      - 비대상 feature tail 최대값 81.2%가 허용치(8%) 초과.
+      - 부작용 원인 분석 및 대응이 필요합니다.
+
+[4] 민감도 분석
+  False Alarm: CAUTION (Shift=0.1750)
+  단조 증가: PASS
+  Bootstrap: mean=0.8774, CV=1.67%, 95%CI=[0.8509, 0.9065]
+
+[5] Ground Truth 검증
+  pattern_A (Systematic Shift, Easy): 21/21 = 100.0%
+  pattern_B (Intermittent Spike, Easy): 0/11 = 0.0%
+  pattern_C (Multi-Feature Outlier, Easy): 20/300 = 6.7%
+  pattern_D (Gradual Trend, Medium): 3/11 = 27.3%
+  pattern_E (Subtle Shift, Hard): 0/21 = 0.0%
+
+[6] 검증 체크리스트
+  [✗ FAIL] False Alarm = 0
+  [✓ PASS] 단조 증가 검증
+  [✓ PASS] Bootstrap CV < 20%
+  [✓ PASS] 효율 향상형 정상→Stage≥1
+  [✓ PASS] 효율 향상형 위험→RISK
+  [✓ PASS] 불량개선 부작용없음→Stage≥3
+  [✓ PASS] 불량개선 부작용있음→Stage≤2
+
+  ▶ 전체: SOME FAILURES
