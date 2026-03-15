@@ -381,3 +381,130 @@ def generate_synthetic_data(n_ref=1000, n_comp=80, n_features=5000, seed=42):
     }
 
     return df_ref, df_comp, ground_truth
+
+
+# ============================================================
+# PCA + Hotelling T² / SPE (보조 분석)
+# ============================================================
+
+def calc_pca_scores(scaled_ref, scaled_comp, n_components=None, variance_ratio=0.95):
+    """PCA 기반 Hotelling T² 및 SPE 산출
+
+    Parameters:
+        scaled_ref: 전처리된 ref 데이터
+        scaled_comp: 전처리된 comp 데이터
+        n_components: PC 수 (None이면 variance_ratio 기준 자동 결정)
+        variance_ratio: 자동 결정 시 설명분산 비율 기준
+
+    Returns:
+        dict with T², SPE scores, thresholds, per-feature contributions
+    """
+    from sklearn.decomposition import PCA
+    from scipy.stats import f as f_dist, chi2
+    import time
+
+    start_time = time.time()
+
+    ref_values = scaled_ref.fillna(0).values
+    comp_values = scaled_comp.fillna(0).values
+
+    # PCA 학습 (ref 기준)
+    if n_components is None:
+        # 최대 PC 수 제한: min(50, 샘플수-1, 피처수)
+        max_pc = min(50, ref_values.shape[0] - 1, ref_values.shape[1])
+        pca_full = PCA(n_components=max_pc).fit(ref_values)
+        cumvar = np.cumsum(pca_full.explained_variance_ratio_)
+        n_components = int(np.searchsorted(cumvar, variance_ratio) + 1)
+        n_components = max(2, min(n_components, max_pc))
+
+    pca = PCA(n_components=n_components)
+    pca.fit(ref_values)
+
+    # Ref 기준 T², SPE
+    ref_scores = pca.transform(ref_values)  # (n_ref, k)
+    ref_reconstructed = pca.inverse_transform(ref_scores)
+
+    eigenvalues = pca.explained_variance_  # λ_i
+
+    # Hotelling T²: T² = Σ(t_i² / λ_i)
+    ref_t2 = np.sum(ref_scores**2 / eigenvalues, axis=1)
+
+    # SPE (Q-statistic): ||x - x̂||²
+    ref_spe = np.sum((ref_values - ref_reconstructed)**2, axis=1)
+
+    # Comp T², SPE
+    comp_scores = pca.transform(comp_values)
+    comp_reconstructed = pca.inverse_transform(comp_scores)
+
+    comp_t2 = np.sum(comp_scores**2 / eigenvalues, axis=1)
+    comp_spe = np.sum((comp_values - comp_reconstructed)**2, axis=1)
+
+    # 임계값 (F-분포 기반 T², chi2 기반 SPE)
+    n_ref = len(ref_values)
+    k = n_components
+
+    # T² threshold: (k(n-1)/(n-k)) * F(k, n-k, alpha)
+    alpha = 0.01
+    f_crit = f_dist.ppf(1 - alpha, k, n_ref - k)
+    t2_threshold = (k * (n_ref - 1) / (n_ref - k)) * f_crit
+
+    # SPE threshold: chi2 근사
+    spe_mean = np.mean(ref_spe)
+    spe_var = np.var(ref_spe)
+    if spe_var > 0:
+        g = spe_var / (2 * spe_mean)
+        h = 2 * spe_mean**2 / spe_var
+        spe_threshold = g * chi2.ppf(1 - alpha, h)
+    else:
+        spe_threshold = np.percentile(ref_spe, 99)
+
+    # Comp 이상 비율
+    t2_exceed_rate = np.mean(comp_t2 > t2_threshold)
+    spe_exceed_rate = np.mean(comp_spe > spe_threshold)
+
+    # Feature contribution (T²)
+    # Contribution_j = Σ_i (t_i * p_ij)² / λ_i
+    loadings = pca.components_  # (k, p)
+    feature_names = scaled_ref.columns.tolist()
+
+    # 평균 comp T² contribution per feature
+    comp_contributions = np.zeros(len(feature_names))
+    for i in range(k):
+        comp_contributions += np.mean(
+            (comp_scores[:, i:i+1] * loadings[i:i+1, :])**2 / eigenvalues[i],
+            axis=0
+        )
+
+    ref_contributions = np.zeros(len(feature_names))
+    for i in range(k):
+        ref_contributions += np.mean(
+            (ref_scores[:, i:i+1] * loadings[i:i+1, :])**2 / eigenvalues[i],
+            axis=0
+        )
+
+    # Contribution 증가율
+    contrib_increase = comp_contributions - ref_contributions
+    top_contrib_idx = np.argsort(contrib_increase)[::-1][:20]
+    top_contrib_features = [feature_names[i] for i in top_contrib_idx]
+    top_contrib_values = contrib_increase[top_contrib_idx]
+
+    elapsed = time.time() - start_time
+
+    return {
+        "n_components": n_components,
+        "explained_variance_ratio": pca.explained_variance_ratio_.sum(),
+        "ref_t2": ref_t2,
+        "comp_t2": comp_t2,
+        "ref_spe": ref_spe,
+        "comp_spe": comp_spe,
+        "t2_threshold": t2_threshold,
+        "spe_threshold": spe_threshold,
+        "t2_exceed_rate": t2_exceed_rate,
+        "spe_exceed_rate": spe_exceed_rate,
+        "top_contrib_features": top_contrib_features,
+        "top_contrib_values": top_contrib_values,
+        "eigenvalues": eigenvalues,
+        "loadings": loadings,
+        "elapsed_sec": elapsed,
+        "pca_model": pca
+    }

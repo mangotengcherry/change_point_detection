@@ -220,8 +220,9 @@
         <a href="#results">3. 결과</a>
         <a href="#discussion">4. 토론</a>
         <a href="#insights">5. 인사이트</a>
-        <a href="#dashboard">6. 대시보드</a>
-        <a href="#references">7. 참고 문헌</a>
+        <a href="#ml-analysis">6. AI/ML 실험</a>
+        <a href="#dashboard">7. 대시보드</a>
+        <a href="#references">8. 참고 문헌</a>
     </div>
 </div>
 
@@ -724,10 +725,158 @@
 </div>
 
 <!-- ============================================================ -->
-<!-- 6. 대시보드 -->
+<!-- 6. AI/ML 보조 분석 -->
+<!-- ============================================================ -->
+<div class="section" id="ml-analysis">
+    <h2 class="section-title"><span class="section-num">06 /</span> AI/ML 보조 분석: Autoencoder 실험</h2>
+
+    <div class="card">
+        <h3>6.1 실험 목적</h3>
+        <p>기존 3-Score 파이프라인은 순수 통계 기반입니다. AI/ML 기법이 <strong>정합성(탐지 성능)</strong>이나 <strong>계산 비용</strong> 관점에서 개선 여지가 있는지를 검증하기 위해, Autoencoder 기반 재구성 오류 분석을 수행했습니다.</p>
+
+        <div class="discussion-box">
+            <div class="title">왜 Autoencoder인가?</div>
+            <p>PCA는 사전 실험에서 합성 데이터(독립 Feature)에 대해 T&sup2; 초과율 0%로 효과가 없었습니다. Isolation Forest도 모든 패턴에서 0% 탐지율이었습니다. <strong>Autoencoder</strong>는 Ref의 정상 매니폴드를 비선형으로 학습하여, Feature 수준에서 재구성 오류 추적이 가능합니다.</p>
+        </div>
+
+        <h3>Autoencoder 구조</h3>
+        <div class="formula">
+            Input(5000) → Linear(200) → ReLU → Linear(100) → ReLU → Latent(100-dim)<br>
+            → Linear(200) → ReLU → Linear(5000) → Output(reconstructed)
+        </div>
+        <table>
+            <tr><th>항목</th><th>설정</th></tr>
+            <tr><td>학습 데이터</td><td><strong>Ref only</strong> (정상 분포만 학습)</td></tr>
+            <tr><td>손실 함수</td><td>MSE (Feature별 재구성 오류)</td></tr>
+            <tr><td>Optimizer</td><td>Adam (lr=1e-3), 30 epochs</td></tr>
+            <tr><td>이상 판정</td><td>Comp MSE > Ref 99th percentile → 이상</td></tr>
+        </table>
+        <p><strong>핵심 아이디어:</strong> Ref로만 학습한 AE에 Compare를 넣으면, 변화가 있는 Feature는 재구성이 실패하여 오류가 증가합니다. 이 <strong>오류 증가분</strong>으로 어떤 Feature가 변화했는지 추적합니다.</p>
+    </div>
+
+    <div class="card">
+        <h3>6.2 탐지 성능 비교</h3>
+        <div class="img-container">
+            <img src="images/ml_if_ae_analysis.png" alt="IF & AE Analysis">
+            <div class="img-caption">Autoencoder 재구성 오류 분포 및 Feature별 오류 증가 Top-15</div>
+        </div>
+        <div class="interpretation">
+            <strong>[해석]</strong>
+            <ul>
+                <li><strong>(좌하) AE 재구성 오류 분포:</strong> Ref(파랑)와 Comp(빨강) 분포가 명확히 분리. Comp의 MSE가 전반적으로 높으며, threshold(빨간 점선)를 대부분 초과합니다.</li>
+                <li><strong>(우하) Feature별 오류 증가 Top-15:</strong> EDS_0115, EDS_0118, EDS_0101 등 <strong>Pattern A(F100~120) Feature가 정확히 상위</strong>에 위치. EDS_0600, EDS_0604(Pattern D)도 포함되어, 3-Score가 검출한 Feature와 높은 일치율을 보입니다.</li>
+            </ul>
+        </div>
+
+        <div class="img-container">
+            <img src="images/ml_pattern_comparison.png" alt="Pattern Comparison">
+            <div class="img-caption">패턴별 탐지 성능: 3-Score vs Autoencoder</div>
+        </div>
+        <div class="interpretation">
+            <strong>[해석]</strong>
+            <ul>
+                <li><strong>3-Score(좌):</strong> Pattern A에서 가장 높은 z-shift(1.400), Pattern D(0.935)도 CAUTION 수준 탐지.</li>
+                <li><strong>AE(우):</strong> Pattern C(Multi-Feature Outlier)에서 가장 높은 재구성 오류(0.726). 300개 Feature 동시 이상이 AE 재구성을 가장 크게 방해.</li>
+                <li>두 방법이 <strong>서로 다른 패턴에서 가장 강한 반응</strong>을 보여, 상호 보완적입니다.</li>
+            </ul>
+        </div>
+
+        <h3>Feature 추적 정확도</h3>
+        <table>
+            <tr><th>방법</th><th>Top-20 중 실제 이상 Feature Hit</th><th>비고</th></tr>
+            <tr><td>3-Score (z-shift)</td><td class="pass"><strong>20/20</strong></td><td>완벽</td></tr>
+            <tr><td>Autoencoder (오류 증가)</td><td class="pass"><strong>20/20</strong></td><td>완벽</td></tr>
+            <tr><td>두 방법 공통 (Overlap)</td><td><strong>18/20</strong></td><td>90% 일치</td></tr>
+            <tr><td>Combined (합집합)</td><td class="pass"><strong>22/22</strong></td><td>AE가 2개 추가 발견</td></tr>
+        </table>
+    </div>
+
+    <div class="card">
+        <h3>6.3 계산 비용 & False Alarm</h3>
+        <div class="img-container">
+            <img src="images/ml_cost_falsealarm.png" alt="Cost & False Alarm">
+            <div class="img-caption">계산 비용 비교 및 False Alarm Rate</div>
+        </div>
+        <div class="interpretation">
+            <strong>[해석]</strong>
+            <ul>
+                <li><strong>(좌) 실행 시간:</strong> 기준 크기(1000&times;5000)에서 3-Score 0.68s, AE +1.28s. 데이터가 커져도 AE 오버헤드 비율은 감소 추세(780%→189%).</li>
+                <li><strong>(우) False Alarm:</strong> 정상 데이터(변화 없음) 10회 반복에서 3-Score와 AE 모두 100% FA. <strong>독립 Feature 합성 데이터에서는 두 방법 모두 정상/이상 구분이 불안정</strong>합니다. 실제 공정 데이터(Feature 간 상관)에서는 개선이 기대됩니다.</li>
+            </ul>
+        </div>
+        <table>
+            <tr><th>데이터 크기</th><th>3-Score</th><th>+ Autoencoder</th><th>AE 오버헤드</th></tr>
+            <tr><td>300&times;1,000</td><td>0.044s</td><td>+0.387s</td><td>+780%</td></tr>
+            <tr><td>500&times;2,000</td><td>0.136s</td><td>+0.458s</td><td>+237%</td></tr>
+            <tr><td><strong>1,000&times;5,000</strong></td><td><strong>0.676s</strong></td><td><strong>+1.276s</strong></td><td><strong>+189%</strong></td></tr>
+        </table>
+    </div>
+
+    <div class="card">
+        <h3>6.4 Learned Ensemble</h3>
+        <div class="img-container">
+            <img src="images/ml_ensemble_summary.png" alt="Ensemble Summary">
+            <div class="img-caption">Learned Ensemble 판정 정확도 및 Feature 추적 종합</div>
+        </div>
+        <div class="interpretation">
+            <strong>[해석]</strong>
+            <ul>
+                <li><strong>(좌상) 판정 정확도:</strong> Rule-based(OR 조건) 25% vs Learned Ensemble <strong>99.5%</strong>. 학습 기반 판정이 4-class 분류에서 압도적. 단, 과거 판정 이력 50건 이상이 필요합니다.</li>
+                <li><strong>(우상) Score 가중치:</strong> Ensemble이 학습한 각 Score의 상대적 중요도. tail_feature_count와 outlier_wafer_rate에 큰 가중치가 할당.</li>
+                <li><strong>(좌하) Feature 추적:</strong> 3-Score 20/20, AE 20/20 모두 완벽. Combined 22/22로 AE가 2개 추가 Feature 발견.</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>6.5 핵심 발견: 왜 합성 데이터에서 ML 효과가 제한적인가</h3>
+        <div class="discussion-box">
+            <div class="title">독립 Feature 구조의 본질적 한계</div>
+            <p>합성 데이터의 5,000개 Feature가 전부 <strong>i.i.d. (독립 동일 분포)</strong>이기 때문에:</p>
+            <ul>
+                <li><strong>PCA:</strong> 50개 PC로 9.3%만 설명 → T&sup2; threshold가 과도하게 높아 탐지 불가</li>
+                <li><strong>Autoencoder:</strong> 저차원 압축이 비효율적 → Ref 자체도 재구성 못 함 → FA 100%</li>
+                <li><strong>Isolation Forest:</strong> 고차원에서 모든 점이 희소 → 정상/이상 밀도 차 구분 불가</li>
+            </ul>
+            <p><strong>반면 3-Score가 잘 작동하는 이유:</strong> Feature별 독립 비교(z-shift, tail rate)를 수행하므로, Feature 간 상관 구조에 <strong>의존하지 않습니다.</strong></p>
+        </div>
+
+        <div class="insight-box">
+            <div class="title">실제 공정 데이터에서는 다르다</div>
+            <p>반도체 EDS 데이터는 Feature 간 <strong>강한 물리적 상관</strong>(동일 회로 블록, 인접 셀)이 있습니다. 소수의 잠재 변수가 수천 Feature를 지배하므로, PCA로 80%+ 설명 가능하며, AE의 매니폴드 학습이 효과적일 것으로 기대됩니다.</p>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>6.6 결론 및 권고 아키텍처</h3>
+        <table>
+            <tr><th>항목</th><th>현재 (합성 데이터)</th><th>향후 (실제 데이터)</th></tr>
+            <tr><td><strong>3-Score</strong></td><td class="pass">최적 (Feature별 직접 비교)</td><td>여전히 유효 (주 판정)</td></tr>
+            <tr><td><strong>Autoencoder</strong></td><td>Feature 추적 보완 (20/20)</td><td>상관 구조 활용 시 효과 극대화 기대</td></tr>
+            <tr><td><strong>Learned Ensemble</strong></td><td>99.5% (데이터 축적 시 유망)</td><td>과거 판정 50건+ 축적 후 도입</td></tr>
+        </table>
+        <pre style="background: #1a237e; font-size: 0.85em;">
+[주 판정] 3-Score Pipeline (Shift / Tail / Outlier)
+    |
+    +-- 기존 OR 조건 판정 (SAFE ~ HIGH_RISK)
+    |
+[보조 참고] Autoencoder 재구성 오류
+    |
+    +-- Feature별 오류 증가 Top-N → 원인 분석 보완
+    +-- Wafer별 MSE → 이상 wafer 교차 검증
+    |
+[장기 도입] Learned Ensemble
+    |
+    +-- 과거 판정 이력 축적 시 → Score 통합 가중치 학습
+        </pre>
+    </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- 7. 대시보드 -->
 <!-- ============================================================ -->
 <div class="section" id="dashboard">
-    <h2 class="section-title"><span class="section-num">06 /</span> Streamlit 대시보드</h2>
+    <h2 class="section-title"><span class="section-num">07 /</span> Streamlit 대시보드</h2>
 
     <div class="card">
         <p>실제 데이터를 업로드하여 3종 Score 분석을 <strong>대화형</strong>으로 수행할 수 있습니다.</p>
@@ -749,7 +898,7 @@ streamlit run src/app.py</pre>
 <!-- 7. 참고 문헌 -->
 <!-- ============================================================ -->
 <div class="section" id="references">
-    <h2 class="section-title"><span class="section-num">07 /</span> 참고 문헌</h2>
+    <h2 class="section-title"><span class="section-num">08 /</span> 참고 문헌</h2>
 
     <div class="card">
         <ol style="padding-left: 20px; line-height: 2.2;">
@@ -763,6 +912,9 @@ streamlit run src/app.py</pre>
             <li>Qiu, P. (2013). <em>Introduction to Statistical Process Control</em>. Chapman & Hall/CRC.</li>
             <li>Benjamini, Y. & Hochberg, Y. (1995). "Controlling the False Discovery Rate." <em>JRSS-B</em>, 57(1), 289-300.</li>
             <li>Miller, P., Swanson, R.E. & Heckler, C.E. (1998). "Contribution Plots: A Missing Link in Multivariate Quality Control." <em>Applied Mathematics and Computer Science</em>, 8(4), 775-792.</li>
+            <li>Sakurada, M. & Yairi, T. (2014). "Anomaly Detection Using Autoencoders with Nonlinear Dimensionality Reduction." <em>MLSDA Workshop</em>, ACM, 4-11.</li>
+            <li>An, J. & Cho, S. (2015). "Variational Autoencoder Based Anomaly Detection Using Reconstruction Probability." <em>SNU Data Mining Center Technical Report</em>.</li>
+            <li>Park, D., Hoshi, Y. & Kemp, C.C. (2018). "A Multimodal Anomaly Detector for Robot-Assisted Feeding Using an LSTM-Based Variational Autoencoder." <em>IEEE Robotics and Automation Letters</em>, 3(3), 1544-1551.</li>
         </ol>
     </div>
 </div>

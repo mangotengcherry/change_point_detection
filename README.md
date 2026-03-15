@@ -311,7 +311,7 @@ Ref 기준 Robust Scaling(median/IQR)을 사용한 이유와 효과:
 
 | 순서 | 확장 내용 | 목적 | 기대 효과 |
 |------|-----------|------|-----------|
-| 1 | PCA 보조 Score | Feature 상관성에 의한 noise 감소 | Pattern E(미세 변화) 검출 개선 |
+| 1 | Autoencoder 보조 분석 | Feature 수준 재구성 오류로 원인 추적 보완 | 아래 6장 실험 결과 참조 |
 | 2 | 통계 검정 교차 검증 | Mann-Whitney U + KS Test | Score의 통계적 유의성 확인 |
 | 3 | 시계열 기반 분석 | CUSUM, EWMA | Pattern D(점진적 trend) 검출 |
 | 4 | Matched Comparison | 설비/시간 metadata 매칭 | Confounding 통제 |
@@ -320,7 +320,140 @@ Ref 기준 Robust Scaling(median/IQR)을 사용한 이유와 효과:
 
 ---
 
-## 6. Streamlit 대시보드
+## 6. AI/ML 보조 분석: Autoencoder 실험
+
+기존 3-Score 파이프라인은 순수 통계 기반입니다. AI/ML 기법이 정합성이나 계산 비용 관점에서 개선 여지가 있는지를 검증하기 위해, **Autoencoder(AE) 기반 재구성 오류 분석**을 보조 실험으로 수행했습니다.
+
+### 6.1 실험 설계
+
+#### 왜 Autoencoder인가?
+
+| 방법 | 원리 | 기대 효과 |
+|------|------|-----------|
+| PCA + Hotelling T² | 선형 차원 축소 후 T²/SPE 산출 | Feature 간 상관 구조 활용 |
+| **Autoencoder** | 비선형 매니폴드 학습 → 재구성 오류 | PCA보다 복잡한 구조 포착, Feature 수준 원인 추적 |
+| Isolation Forest | 고차원 공간 고립 용이성 | 수동 임계값 불필요 |
+
+PCA는 사전 실험에서 합성 데이터(독립 Feature)에 대해 T² 초과율 0%, SPE False Alarm 100%로 효과가 없었습니다. Isolation Forest도 모든 패턴에서 anomaly rate 0%로 탐지 실패했습니다. 반면 **Autoencoder**는 Feature 수준에서 재구성 오류를 추적하여, 3-Score와 다른 관점의 정보를 제공합니다.
+
+#### Autoencoder 구조
+
+```
+Input (5,000 features)
+  → Encoder: Linear(5000, 200) → ReLU → Linear(200, 100) → ReLU
+  → Latent (100-dim)
+  → Decoder: Linear(100, 200) → ReLU → Linear(200, 5000)
+Output (5,000 features, reconstructed)
+```
+
+- **학습 데이터**: Ref only (정상 분포만 학습)
+- **손실 함수**: MSE (Feature별 재구성 오류)
+- **Epochs**: 30, Batch Size: 32, Optimizer: Adam (lr=1e-3)
+- **이상 판정**: Comp의 MSE > Ref의 99th percentile → 이상
+
+핵심 아이디어: Ref의 **정상 매니폴드**를 학습한 AE에 Compare를 입력하면, 변화가 있는 Feature는 재구성이 실패하여 오류가 증가합니다. 이 오류 증가분으로 **어떤 Feature가 변화했는지** 추적합니다.
+
+### 6.2 실험 결과
+
+#### 패턴별 탐지 비교: 3-Score vs Autoencoder
+
+| 패턴 | 난이도 | 3-Score | Autoencoder | 비고 |
+|------|--------|---------|-------------|------|
+| A (Shift) | Easy | O (z=1.400) | O (MSE > threshold) | 동등 |
+| B (Spike) | Easy | O (Tail 탐지) | O (MSE > threshold) | 동등 |
+| C (Outlier) | Easy | O (Outlier 탐지) | O (MSE=0.726, 최고) | AE가 가장 높은 MSE |
+| D (Trend) | Medium | O (z=0.935) | O (MSE > threshold) | 동등 |
+| E (Subtle) | Hard | O (z=0.520) | O (MSE > threshold) | 동등 |
+
+![AI/ML 보조 분석](docs/images/ml_if_ae_analysis.png)
+> **[해석]**
+> - **(좌하) AE 재구성 오류 분포**: Ref(파랑)와 Comp(빨강) 분포가 명확히 분리되어 있습니다. Comp의 MSE가 전반적으로 높으며, threshold(빨간 점선)를 대부분 초과합니다.
+> - **(우하) Feature별 오류 증가 Top-15**: EDS_0115, EDS_0118, EDS_0101 등 **Pattern A(F100~120) Feature가 정확히 상위에 위치**합니다. EDS_0600, EDS_0604(Pattern D)도 포함되어, 3-Score가 검출한 Feature와 높은 일치율을 보입니다.
+
+#### Feature 추적 정확도
+
+| 방법 | Top-20 중 실제 이상 Feature Hit | 비고 |
+|------|-------------------------------|------|
+| 3-Score (z-shift 기준) | **20/20** | 완벽 |
+| Autoencoder (오류 증가 기준) | **20/20** | 완벽 |
+| 두 방법 공통 (Overlap) | **18/20** | 90% 일치 |
+| Combined (합집합) | **22/22** | AE가 2개 추가 발견 |
+
+![패턴별 비교](docs/images/ml_pattern_comparison.png)
+> **[해석]** 3-Score(좌)는 Pattern A에서 가장 높은 z-shift(1.400)를 보이고, AE(우)는 Pattern C에서 가장 높은 재구성 오류(0.726)를 보입니다. 두 방법이 **서로 다른 패턴에서 가장 강한 반응**을 보여, 상호 보완적입니다.
+
+#### 계산 비용 비교
+
+| 데이터 크기 | 3-Score | Autoencoder | 총합 | AE 오버헤드 |
+|------------|---------|-------------|------|-----------|
+| 300×1000 | 0.044s | 0.387s | 0.431s | +780% |
+| 500×2000 | 0.136s | 0.458s | 0.594s | +237% |
+| **1000×5000** | **0.676s** | **1.276s** | **1.952s** | **+189%** |
+
+![계산 비용](docs/images/ml_cost_falsealarm.png)
+> **[해석]**
+> - **(좌) 실행 시간**: 데이터 크기가 커질수록 AE의 절대 비용이 증가하나, 오버헤드 비율은 감소 추세(780%→189%)입니다. Feature 수가 많아져도 AE 학습 시간은 epoch 수에 비례하여 상대적으로 안정적입니다.
+> - **(우) False Alarm**: 3-Score는 정상 데이터에서도 100% False Alarm이 발생합니다(Tail 임계값 과민). AE도 100% FA로, 독립 Feature 합성 데이터에서는 재구성 자체가 어려워 정상/이상 구분이 불안정합니다.
+
+#### Learned Ensemble (Rule-based vs 학습 기반 판정)
+
+기존 OR 조건 규칙 기반 판정을 Logistic Regression 기반 학습 판정과 비교했습니다.
+
+| 항목 | Rule-based (OR 조건) | Learned Ensemble |
+|------|---------------------|------------------|
+| 정확도 | 25.0% | **99.5%** |
+| 방법 | 수동 임계값 기반 | 4-Score 벡터 학습 |
+| 필요 데이터 | 없음 | 과거 판정 이력 50건+ |
+
+![Ensemble 결과](docs/images/ml_ensemble_summary.png)
+> **[해석]**
+> - **(좌상) 클래스별 정확도**: Rule-based는 HIGH_RISK에 편중되는 반면, Ensemble은 SAFE/CAUTION/RISK/HIGH_RISK 전 클래스에서 균등하게 높은 정확도를 달성합니다.
+> - **(우상) Score 가중치**: Ensemble이 학습한 각 Score의 상대적 중요도. tail_feature_count와 outlier_wafer_rate에 큰 음의 가중치(낮을수록 SAFE 쪽)가 할당되었습니다.
+> - **(좌하) Feature 추적**: 3-Score와 AE 모두 20/20 적중, Combined 22/22. Overlap 18/20으로 두 방법이 높은 일치를 보이면서도 AE가 2개 추가 Feature를 발견했습니다.
+
+### 6.3 핵심 발견: 왜 합성 데이터에서 ML 효과가 제한적인가
+
+실험의 가장 중요한 발견은 **"왜 ML이 기대만큼 작동하지 않는가"**입니다:
+
+| 원인 | 설명 | 영향 |
+|------|------|------|
+| **Feature 독립성** | 합성 데이터의 5,000개 Feature가 전부 i.i.d. (상관 없음) | PCA 9.3%만 설명, AE 압축 비효율 |
+| **고차원 저밀도** | 독립 5,000차원에서 모든 데이터가 희소 | IF가 정상/이상 밀도 차 구분 불가 |
+| **매니폴드 부재** | 비선형 구조가 없어 AE 학습 이점 없음 | AE가 단순 PCA와 유사하게 동작 |
+
+**실제 반도체 공정 데이터**에서는 상황이 다릅니다:
+- EDS Feature 간 **물리적 상관**이 강함 (동일 회로 블록, 인접 셀)
+- 소수의 **잠재 변수**(latent factor)가 수천 Feature를 지배
+- PCA로 80%+ 설명 가능 → AE의 매니폴드 학습이 효과적
+
+### 6.4 실험 결론 및 권고
+
+| 항목 | 현재 (합성 데이터) | 향후 (실제 데이터) |
+|------|-------------------|-------------------|
+| **3-Score** | 최적 (Feature별 직접 비교) | 여전히 유효 (주 판정) |
+| **Autoencoder** | Feature 추적 보완 (20/20) | 상관 구조 활용 시 효과 극대화 기대 |
+| **Learned Ensemble** | 99.5% (데이터 축적 시 유망) | 과거 판정 50건 이상 축적 후 도입 |
+
+**권고 아키텍처:**
+
+```
+[주 판정] 3-Score Pipeline (Shift / Tail / Outlier)
+    │
+    ├─ 기존 OR 조건 판정 (SAFE ~ HIGH_RISK)
+    │
+[보조 참고] Autoencoder 재구성 오류
+    │
+    ├─ Feature별 오류 증가 Top-N → 원인 분석 보완
+    ├─ Wafer별 MSE → 이상 wafer 교차 검증
+    │
+[장기 도입] Learned Ensemble
+    │
+    └─ 과거 판정 이력 축적 시 → Score 통합 가중치 학습
+```
+
+---
+
+## 7. Streamlit 대시보드
 
 실제 데이터를 업로드하여 3종 Score 분석을 대화형으로 수행할 수 있습니다.
 
@@ -338,23 +471,25 @@ streamlit run src/app.py
 
 ---
 
-## 7. 프로젝트 구조
+## 8. 프로젝트 구조
 
 ```
 change_point_detection/
-├── README.md                      # 프로젝트 문서 (과제 배경 ~ 인사이트)
-├── requirements.txt               # 의존성
+├── README.md                          # 프로젝트 문서 (과제 배경 ~ 인사이트)
+├── requirements.txt                   # 의존성
 ├── src/
-│   ├── eco_change_detection.py    # 핵심 파이프라인 (3종 Score + 판정)
-│   ├── run_experiment.py          # 실험 실행 + 시각화 10종 생성
-│   └── app.py                     # Streamlit 대시보드
-├── results/                       # 생성된 시각화 이미지
-└── docs/                          # GitHub Pages
-    ├── index.html                 # 프로젝트 페이지
-    └── images/                    # 시각화 이미지
+│   ├── eco_change_detection.py        # 핵심 파이프라인 (3종 Score + 판정 + PCA)
+│   ├── run_experiment.py              # 실험 실행 + 시각화 10종 생성
+│   ├── ml_enhanced_detection.py       # AI/ML 보조 모듈 (Autoencoder, Ensemble)
+│   ├── run_ml_comparison.py           # AI/ML 비교 실험 실행
+│   └── app.py                         # Streamlit 대시보드
+├── results/                           # 생성된 시각화 이미지
+└── docs/                              # GitHub Pages
+    ├── index.html                     # 프로젝트 페이지
+    └── images/                        # 시각화 이미지
 ```
 
-## 8. 실행 방법
+## 9. 실행 방법
 
 ```bash
 # 의존성 설치
@@ -363,13 +498,16 @@ pip install -r requirements.txt
 # 실험 실행 (합성 데이터 생성 + 파이프라인 + 시각화 10종)
 python src/run_experiment.py
 
+# AI/ML 비교 실험 실행 (Autoencoder + Ensemble)
+python src/run_ml_comparison.py
+
 # Streamlit 대시보드 실행
 streamlit run src/app.py
 ```
 
 ---
 
-## 9. 참고 문헌
+## 10. 참고 문헌
 
 1. Montgomery, D.C. (2019). *Introduction to Statistical Quality Control*, 8th Ed. Wiley.
 2. Hawkins, D.M. & Olwell, D.H. (1998). *Cumulative Sum Charts and Charting for Quality Improvement*. Springer.
@@ -381,3 +519,6 @@ streamlit run src/app.py
 8. Qiu, P. (2013). *Introduction to Statistical Process Control*. Chapman & Hall/CRC.
 9. Benjamini, Y. & Hochberg, Y. (1995). "Controlling the False Discovery Rate." *JRSS-B*, 57(1), 289-300.
 10. Miller, P., Swanson, R.E. & Heckler, C.E. (1998). "Contribution Plots: A Missing Link in Multivariate Quality Control." *Applied Mathematics and Computer Science*, 8(4), 775-792.
+11. Sakurada, M. & Yairi, T. (2014). "Anomaly Detection Using Autoencoders with Nonlinear Dimensionality Reduction." *MLSDA Workshop*, ACM, 4-11.
+12. An, J. & Cho, S. (2015). "Variational Autoencoder Based Anomaly Detection Using Reconstruction Probability." *SNU Data Mining Center Technical Report*.
+13. Park, D., Hoshi, Y. & Kemp, C.C. (2018). "A Multimodal Anomaly Detector for Robot-Assisted Feeding Using an LSTM-Based Variational Autoencoder." *IEEE Robotics and Automation Letters*, 3(3), 1544-1551.
